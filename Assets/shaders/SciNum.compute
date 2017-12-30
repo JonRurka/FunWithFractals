@@ -1,0 +1,88 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct SciNumTransfer
+{
+	int exp;
+	uint m1;
+	uint m2;
+};
+
+class SciNum {
+	int Exp;
+	double Man;
+};
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+// ----- SciNum functions -----
+
+int Exponent(double d) {
+	return (int)log10(abs(d));
+}
+
+double Mantissa(double d, int exp) {
+	return d / pow(10, exp);
+}
+
+double ToNormal(double m, int exp) {
+	return m * pow(10, exp);
+}
+
+double ToNormal(SciNum num) {
+	return ToNormal(num.Man, num.Exp);
+}
+
+SciNum GetSciNum(double value) {
+	SciNum num;
+	num.Exp = Exponent(value);
+	num.Man = Mantissa(value, num.Exp);
+	return num;
+}
+
+SciNum GetSciNum(double m, int e) {
+	SciNum num;
+	num.Exp = e;
+	num.Man = m;
+	return num;
+}
+
+SciNum GetSciNum(SciNumTransfer tr) {
+	return GetSciNum(asdouble(tr.m1, tr.m2), tr.exp);
+}
+
+SciNum GetSciNum() {
+	return GetSciNum(0, 1);
+}
+
+SciNum Add(SciNum first, SciNum other) {
+	int diff = first.Exp - other.Exp;
+	int otherExp = first.Exp;
+	double otherM = other.Man / pow(10, diff);
+	return GetSciNum(first.Man + otherM, otherExp);
+}
+
+SciNum Subtract(SciNum first, SciNum other) {
+	int diff = first.Exp - other.Exp;
+	int otherExp = first.Exp;
+	double otherM = other.Man / pow(10, diff);
+	return GetSciNum(first.Man - otherM, otherExp);
+}
+
+SciNum Multiply(SciNum first, SciNum other) {
+	return GetSciNum(first.Man * other.Man, first.Exp + other.Exp);
+}
+
+SciNum Divide(SciNum first, SciNum other) {
+	return GetSciNum(first.Man / other.Man, first.Exp - other.Exp);
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	// TODO: insert actual code here!
+
+	Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+}

@@ -1,0 +1,201 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+//#pragma kernel CSMain_sci
+#pragma kernel CSMain
+
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+Texture2D<float4> image;
+StructuredBuffer<float> viewport;
+RWStructuredBuffer<float> variables;
+StructuredBuffer<float4> gradient;
+bool julia;
+bool showMark;
+bool getMouse;
+bool grayScale;
+bool useImage;
+
+// ----- math -----
+
+double Sqrt(const double fg) {
+	double n = fg / 2.0;
+	double lstX = 0.0;
+
+	while (n != lstX)
+	{
+		lstX = n;
+		n = (n + fg / n) / 2.0;
+	}
+	return n;
+}
+
+// ----- Complex functions -----
+
+class Complex {
+	double Real;
+	double Imaginary;
+};
+
+Complex GetComplex(double real, double imaginary) {
+	Complex c;
+	c.Real = real;
+	c.Imaginary = imaginary;
+	return c;
+}
+
+Complex GetComplex(Complex orig) {
+	Complex c;
+	c.Real = orig.Real;
+	c.Imaginary = orig.Imaginary;
+	return c;
+}
+
+Complex Add(Complex a, Complex b) {
+	Complex c;
+	c.Real = a.Real + b.Real;
+	c.Imaginary = a.Imaginary + b.Imaginary;
+	return c;
+}
+
+Complex Subtract(Complex a, Complex b) {
+	Complex c;
+	c.Real = a.Real - b.Real;
+	c.Imaginary = a.Imaginary - b.Imaginary;
+	return c;
+}
+
+double Abs(Complex a) {
+	return sqrt(a.Real * a.Real + a.Imaginary * a.Imaginary);
+}
+
+double AbsNoSqrt(Complex a) {
+	return a.Real * a.Real + a.Imaginary * a.Imaginary;
+}
+
+Complex Multiply(Complex z, Complex w) {
+	Complex c;
+	double r1 = z.Real * w.Real;
+	double r2 = z.Real * w.Imaginary;
+	double r3 = z.Imaginary * w.Real;
+	double r4 = -(z.Imaginary * w.Imaginary);
+	c.Real = r1 + r4;
+	c.Imaginary = r2 + r3;
+	return c;
+}
+
+Complex Pow(Complex a, double p) {
+	Complex c;
+
+	// z^n = r^n (cos(nθ) + i sin(nθ))
+
+	if (a.Real == 0)
+		a.Real = 0.000001;
+
+	double R = Abs(a);
+	double Theta = atan2(a.Imaginary, a.Real);
+
+	double z1 = pow(R, p) * cos(p * Theta);
+	double z2 = pow(R, p) * sin(p * Theta);
+	c.Real = z1;
+	c.Imaginary = z2;
+	return c;
+}
+
+
+[numthreads(16, 16, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+	double xMin = asdouble((uint)viewport[0], (uint)viewport[1]);
+	double xMax = asdouble((uint)viewport[2], (uint)viewport[3]);
+	double yMin = asdouble((uint)viewport[4], (uint)viewport[5]);
+	double yMax = asdouble((uint)viewport[6], (uint)viewport[7]);
+	int width = variables[0];
+	int height = variables[1];
+	int iMax = (int)variables[2];
+	int gradientCount = (int)variables[3];
+
+	double Pow1 = asdouble((uint)variables[4], (uint)variables[5]);
+	double markX = asdouble((uint)variables[6], (uint)variables[7]);
+	double markY = asdouble((uint)variables[8], (uint)variables[9]);
+
+	double julia_x = variables[10];
+	double julia_y = variables[11];
+
+	int mouseX = round(variables[12]);
+	int mouseY = round(variables[13]);
+
+	float imgStr = variables[15];
+
+	double xLen = (xMax - xMin) / (double)width;
+	double yLen = (yMax - yMin) / (double)height;
+
+	double x = xMin + (id.x * xLen);
+	double y = yMin + (id.y * yLen);
+
+
+	double px = x - xLen;
+	double py = y - yLen;
+	Complex coord;
+	Complex val;
+	if (julia) {
+		coord = GetComplex(julia_x, julia_y);
+		val = GetComplex(x, y);
+	}
+	else {
+		coord = GetComplex(x, y);
+		val = GetComplex(0, 0);
+	}
+
+	/*if (useImage) {
+		float4 col = image[id.xy];
+		double gray = (col.x * 0.3) + (col.y * 0.59) + (col.z * 0.11);
+		gray = gray * imgStr;
+
+		coord = GetComplex(x, y);
+		val = GetComplex(0, y);
+	}*/
+
+	int i = 0;
+	while (i < iMax && AbsNoSqrt(val) < 4) {
+		i++;
+		val = Pow(val, Pow1);
+		val = Add(val, coord);
+	}
+
+	
+	float4 final;
+	/*if (grayScale) {
+		double perc = 1 - (i / (double)iMax);
+		final = float4(perc * 255, perc * 255, perc * 255, 255);
+	}
+	else {
+		double gp = max(1 / (double)gradientCount, 0);
+		double perc = 1 - (i / (double)iMax);
+		double gd = perc / gp;
+		int gi = (int)gd;
+		float4 c1 = gradient[min(gi, (int)gradientCount - 1)];
+		float4 c2 = gradient[min(gi + 1, (int)gradientCount - 1)];
+		final = lerp(c1, c2, (float)(gd - trunc(gd)));
+	}*/
+
+	double gp = max(1 / (double)gradientCount, 0);
+	double perc = 1 - (i / (double)iMax);
+	double gd = perc / gp;
+	int gi = (int)gd;
+	float4 c1 = gradient[min(gi, (int)gradientCount - 1)];
+	float4 c2 = gradient[min(gi + 1, (int)gradientCount - 1)];
+	final = lerp(c1, c2, (float)(gd - trunc(gd)));
+
+	if (showMark && (markX >= px && markX <= x || markY >= py && markY <= y)) {
+		final = float4(255,255,255,255);
+	}
+
+	if (getMouse && mouseX == id.x && mouseY == id.y) {
+		final = float4(255, 0, 0, 255);
+		variables[12] = x;
+		variables[13] = y;
+		variables[14] = i;
+	}
+
+	Result[id.xy] = final;
+}
